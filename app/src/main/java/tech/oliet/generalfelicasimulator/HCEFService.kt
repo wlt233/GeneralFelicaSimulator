@@ -7,7 +7,7 @@ import android.widget.Toast
 
 
 class HCEFService : HostNfcFService() {
-    private var card = FelicaCard()
+    private lateinit var card: FelicaCard
 
     // byte utils
     fun byteArrayOfInts(vararg ints: Int) = ByteArray(ints.size) { pos -> ints[pos].toByte() }
@@ -25,9 +25,9 @@ class HCEFService : HostNfcFService() {
 
     override fun processNfcFPacket(commandPacket: ByteArray, extras: Bundle?): ByteArray? {
         val commandHexStr = commandPacket.toHexString()
-        Toast.makeText(this, "received $commandHexStr", Toast.LENGTH_LONG).show()
         Log.d("HCEFService", "processNfcFPacket NFCF")
-        Log.d("HCEFService", commandHexStr)
+        Log.d("HCEFService", "received $commandHexStr")
+        //Toast.makeText(this, "received $commandHexStr", Toast.LENGTH_LONG).show()
 
         if (commandPacket.size < 1 + 1 + 8 || (commandPacket.size.toByte() != commandPacket[0])) {
             Log.e("HCEFService", "processNfcFPacket: packet size error")
@@ -43,14 +43,29 @@ class HCEFService : HostNfcFService() {
 //            return null
 //        }
 
-        if (commandPacket[1] === 0x06.toByte()) { // READ BLK
-            var payload = ByteArray(0)
-            return packResponse(0x07, nfcid2, payload)
+        if (commandPacket[1] == 0x06.toByte()) { // READ BLK
+            val blockNum = commandPacket[13].toInt()
+            val payload = ByteArray(2 + 1 + 16 * blockNum)
+            payload[2] = blockNum.toByte()
+            for (i in 0 until blockNum) {
+                val id = commandPacket[13 + 2 + 2 * i]
+                card.readBlock(id)?.let { System.arraycopy(it, 0, payload, 3 + 16 * i, 16) }
+            }
+            val resp = packResponse(0x07.toByte(), nfcid2, payload)
+            val respHexStr = resp.toHexString()
+            Log.d("HCEFService", "send $respHexStr")
+            Toast.makeText(this, "received $commandHexStr\n\nsend $respHexStr", Toast.LENGTH_LONG).show()
+            return resp
         }
-        else if (commandPacket[1] === 0x08.toByte()) { // WRITE BLK
-            var payload = ByteArray(0)
-            return packResponse(0x09, nfcid2, payload)
+        else if (commandPacket[1] == 0x08.toByte()) { // WRITE BLK // not implemented
+            val payload = ByteArray(2)
+            val resp = packResponse(0x09.toByte(), nfcid2, payload)
+            val respHexStr = resp.toHexString()
+            Log.d("HCEFService", "send $respHexStr")
+            Toast.makeText(this, "received $commandHexStr\n\nsend $respHexStr", Toast.LENGTH_LONG).show()
+            return resp
         }
+
 
        return byteArrayOfInts(0x04, 0x11, 0x45, 0x14)
        // sendResponsePacket(byteArrayOfInts(0x04, 0x11, 0x45, 0x14))
@@ -58,12 +73,10 @@ class HCEFService : HostNfcFService() {
     }
 
 
-    // this class will be created for each received command
-    // so card json need to be loaded every time
     override fun onCreate() {
         Log.d("HCEFService", "onCreate NFCF")
         super.onCreate()
-        card.fromJson("path_to_json")
+        card = FelicaCard(getExternalFilesDir(null).toString() + "/felica.json")
         // Toast.makeText(this, "onCreate", Toast.LENGTH_LONG).show()
     }
 
